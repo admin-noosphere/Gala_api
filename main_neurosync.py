@@ -88,7 +88,7 @@ class NeuroSyncApiClient:
                 async with session.post(
                     f"{self.api_url}/audio_to_blendshapes",
                     data=audio_data,
-                    headers={"Content-Type": "audio/wav"},
+                    headers={"Content-Type": "audio/pcm"},
                     timeout=aiohttp.ClientTimeout(total=5)
                 ) as response:
                     if response.status == 200:
@@ -152,7 +152,8 @@ class NeuroSyncBufferProcessor(FrameProcessor):
         
         # Buffer pour accumulation
         self._buffer = bytearray()
-        self._min_buffer_size = 4480  # ~200ms à 16kHz
+        # Accumule environ 192 ms d'audio (16 kHz mono, 16‑bit)
+        self._min_buffer_size = int(16000 * 0.192 * 2)  # 6144 octets
         
     async def process_frame(self, frame, direction=FrameDirection.DOWNSTREAM):
         # Toujours appeler super()
