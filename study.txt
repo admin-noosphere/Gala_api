@@ -1,0 +1,142 @@
+# Étude des projets NeuroSync
+
+## 1. NeuroSync Real-Time API
+
+### Vue d'ensemble
+Une API Flask offrant plusieurs endpoints AI locaux pour l'animation audio2face en temps réel et d'autres fonctionnalités IA.
+
+### Architecture principale
+- **Point d'entrée** : main.py
+- **Framework** : Flask avec endpoints REST
+- **GPU Support** : CUDA optimisé (CUDA_VISIBLE_DEVICES=0)
+- **Configuration** : Flags pour activer/désactiver les fonctionnalités
+  - ENABLE_AUDIO_ENDPOINTS = True
+  - ENABLE_IMAGE_ENDPOINTS = False
+  - ENABLE_TTS_ENDPOINTS = False
+  - ENABLE_EMBEDDING_ENDPOINTS = False
+
+### Modèles utilisés
+1. **NeuroSync Audio2Face** : Transformer pour conversion audio → blendshapes
+   - 228M paramètres (8 layers, 16 heads)
+   - Input dim : 256, Output dim : 68 blendshapes
+   - Sample rate : 88200 Hz
+   - Frame rate : 60 FPS
+
+2. **Whisper Turbo** : STT (Speech-to-Text)
+   - openai/whisper-large-v3-turbo
+
+3. **Embeddings** : 
+   - Snowflake Arctic Embed M v1.5
+
+4. **Vision** (optionnel) :
+   - BLIP, CLIP, ViLT pour image-to-text
+
+5. **TTS** (optionnel) :
+   - Kokoro avec voix configurables
+
+### Endpoints principaux
+- `/audio_to_blendshapes` : Conversion audio → animation faciale
+- `/transcribe` : Audio → texte (Whisper)
+- `/generate_embeddings` : Texte → embeddings
+- `/generate_speech` : Texte → audio (TTS)
+- `/process_image` : Image → description
+- `/process_clip` : Classification d'images
+
+### Flux audio
+1. Réception audio (WAV)
+2. Traitement via `utils_audio.py`
+3. Conversion en features audio
+4. Génération des blendshapes via le modèle transformer
+5. Retour des 68 blendshapes (52 faciaux + 16 supplémentaires)
+
+## 2. NeuroSync Player
+
+### Vue d'ensemble
+Client pour Unreal Engine 5 utilisant LiveLink pour streamer les animations faciales en temps réel.
+
+### Architecture
+- **Framework** : Pipecat pour la gestion des pipelines
+- **Communication** : Daily.co pour WebRTC
+- **Protocole** : LiveLink pour Unreal Engine
+- **LLM Support** : Gemini, OpenAI compatible
+
+### Modules principaux
+
+#### 1. UnrealFaceAnimator
+- Gère la connexion LiveLink avec Unreal
+- Reçoit l'audio PCM, l'envoie à l'API NeuroSync
+- Récupère les blendshapes et les encode pour LiveLink
+- FPS configurable (par défaut 60)
+
+#### 2. AudioModule
+- Intercepte toutes les sorties audio
+- Accumule les frames audio (min 200ms par défaut)
+- Déclenche l'animation NeuroSync quand le seuil est atteint
+- Sample rate : 48000 Hz, mono
+
+#### 3. VideoModule
+- Gère le flux vidéo UDP (port 8001)
+- Résolution : 1920x1080 @ 30 FPS
+- Format : RGB
+
+#### 4. FaceBlendShapes
+Enum définissant 68 blendshapes :
+- 0-13 : Yeux (blink, look directions, squint, wide)
+- 14-17 : Mâchoire (forward, left/right, open)
+- 18-40 : Bouche (divers mouvements)
+- 41-50 : Sourcils et joues
+- 51 : Langue
+- 52-60 : Mouvements de tête et yeux
+- 61-67 : Émotions (angry, disgusted, fearful, happy, neutral, sad, surprised)
+
+### Communication LiveLink
+1. Socket UDP vers Unreal Engine
+2. Pré-encodage des données faciales
+3. Support des animations blend-in/blend-out
+4. Remplacement des mouvements d'yeux par des animations par défaut
+5. Envoi synchronisé avec l'audio
+
+### Intégrations LLM supportées
+- OpenAI Realtime API
+- Gemini Multimodal Live
+- Modèles locaux Llama (3.1, 3.2)
+- Support Pipecat pour pipelines complexes
+
+### Fichiers générés
+Structure dans `/generated/` :
+- UUID unique par session
+- audio.wav : Fichier audio
+- shapes.csv : Blendshapes correspondants
+
+## 3. Points clés pour la fusion
+
+### API NeuroSync → Player
+- URL : http://127.0.0.1:6969/audio_to_blendshapes
+- Format : WAV audio → JSON avec array de blendshapes
+- Latence : Optimisé pour le temps réel
+
+### Configuration commune
+- Sample rate API : 88200 Hz (modèle) 
+- Sample rate Player : 48000 Hz (Daily)
+- Frame rate : 60 FPS
+- Blendshapes : 68 valeurs flottantes
+
+### Dépendances principales
+- torch, numpy, soundfile
+- flask (API)
+- pipecat, daily-python (Player)
+- pylivelinkface (LiveLink)
+- aiohttp, asyncio (async)
+
+### Workflows supportés
+1. **Audio direct** : Micro → NeuroSync → Unreal
+2. **TTS** : Texte → Audio → NeuroSync → Unreal
+3. **LLM conversationnel** : Prompt → LLM → TTS → NeuroSync → Unreal
+4. **Streaming** : WebRTC → Audio accumulation → NeuroSync → Unreal
+
+### Optimisations
+- CUDA support avec optimisations TF32
+- Mixed precision (float16)
+- Pre-encoding des blendshapes
+- Accumulation audio pour éviter les micro-frames
+- Cache 15 minutes pour WebFetch

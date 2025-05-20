@@ -1,0 +1,206 @@
+Analyse Approfondie de la Génération d'Animation Faciale dans NeuroSync et Proposition d'API Temps Réel pour LiveLink Unreal Engine1. Introduction et Objectifs de l'AnalyseCe rapport se concentre sur l'analyse détaillée des mécanismes de génération d'animations faciales, spécifiquement les visèmes et les blendshapes, au sein des projets NeuroSync Player 1 et NeuroSync Local API.3 L'objectif est d'élucider le fonctionnement interne de ces systèmes, de clarifier les distinctions terminologiques, d'examiner la gestion des animations au repos ('idle'), et de déterminer la nature (syllabique ou pilotée par modèle) de la synchronisation labiale. En outre, une architecture fonctionnelle sera schématisée, les formats de données échangées seront décrits, et une proposition d'API temps réel pour une intégration directe avec LiveLink d'Unreal Engine, contournant le NeuroSync Player, sera ébauchée. L'analyse se limitera strictement aux aspects liés à l'animation faciale.2. Visèmes et Blendshapes : Définitions et DistinctionsLa compréhension des termes "visème" et "blendshape" est fondamentale pour analyser les systèmes d'animation faciale.2.1. Définition du VisèmeUn visème est la représentation visuelle d'un phonème, l'unité sonore de base du langage parlé. Il définit la position caractéristique du visage et de la bouche lorsqu एक personne émet un son spécifique.4 Chaque visème correspond à une pose faciale clé pour un ensemble de phonèmes qui, visuellement, se ressemblent lors de leur production. Par exemple, les phonèmes /s/ et /z/ peuvent correspondre au même visème car leur articulation produit une apparence faciale similaire.4 Les systèmes de synthèse vocale, tels que le service Neural Text to Speech (Neural TTS) d'Azure, peuvent générer des identifiants de visèmes (des nombres entiers spécifiant un visème parmi un ensemble prédéfini, par exemple 22 visèmes pour certaines configurations) en parallèle de la sortie audio.4 Ces identifiants peuvent ensuite être utilisés pour animer des modèles d'avatars 2D ou 3D. Il est important de noter que les ensembles de visèmes varient en fonction de la langue et des spécificités locales.42.2. Définition du Blendshape (Morph Target)Les blendshapes, également connus sous le nom de "morph targets", sont une technique d'animation faciale par cibles de déformation.5 Cette méthode implique la modélisation de différentes expressions faciales ou de poses buccales (correspondant souvent à des visèmes ou des parties d'expressions émotionnelles) sur un maillage 3D. Chacune de ces poses modélisées est un "target" (cible). L'animation est ensuite créée en interpolant (ou "mélangeant") les poids de ces différentes cibles.5 Par exemple, pour créer un sourire, on pourrait avoir un blendshape "sourire gauche" et un "sourire droit", dont les influences sont combinées. Le système NeuroSync utilise explicitement les blendshapes faciaux pour l'animation.1 Le modèle NeuroSync génère des coefficients de blendshapes à partir de l'audio, qui sont ensuite appliqués à un modèle facial 3D dans Unreal Engine 5.12.3. Différence FondamentaleLa différence principale réside dans leur nature et leur application :
+Visème : Un concept linguistique et perceptuel. C'est une description visuelle d'un phonème, une unité discrète souvent représentée par un identifiant ou une pose clé. Il est plus abstrait et sert de guide pour ce qui doit être montré.
+Blendshape : Une technique d'animation 3D. Ce sont des données géométriques (ensembles de positions de sommets d'un maillage) qui, lorsqu'elles sont pondérées et combinées, déforment un maillage de base pour atteindre une expression ou une pose buccale souhaitée. C'est le moyen technique d'afficher un visème ou une expression sur un personnage 3D.
+En résumé, un système peut utiliser la détection de visèmes à partir de l'audio pour ensuite piloter des blendshapes afin d'animer le visage. NeuroSync semble opérer directement au niveau de la génération de coefficients de blendshapes à partir de l'audio, ce qui implique une interprétation des caractéristiques acoustiques pour déterminer les poses faciales adéquates, un processus qui englobe implicitement la logique des visèmes.1 Le modèle NeuroSync produit 52 coefficients de blendshapes pour l'animation faciale, couvrant les mouvements des yeux, de la mâchoire, de la bouche, des sourcils, des joues et du nez.6 Une source mentionne 55 positions faciales pour les blendshapes dans un contexte général 4, tandis que NeuroSync spécifiquement en utilise 61 au total, dont 52 pour le visage et 9 pour les mouvements de tête et états émotionnels (ces 9 derniers n'étant pas streamés vers LiveLink).63. Génération d'Animation Faciale par NeuroSyncLe système NeuroSync est conçu pour la génération d'animations faciales en temps réel à partir d'une entrée audio, en s'appuyant sur un modèle d'intelligence artificielle avancé.13.1. Modèle Fondamental : Transformer Audio-vers-BlendshapesAu cœur de NeuroSync se trouve un modèle de type transformer audio-vers-blendshapes.1 Ce modèle d'IA, basé sur une architecture encodeur-décodeur de type "seq2seq" (séquence à séquence), est entraîné pour convertir les caractéristiques extraites d'un signal audio en une série de coefficients de blendshapes.6 La version la plus récente du modèle (228 millions de paramètres) utilise 8 couches et 16 têtes d'attention, traitant les caractéristiques audio avec des encodages positionnels et des mécanismes d'attention croisée pour générer des animations faciales précises.7 Ce modèle a été mis à jour le 29 mars 2025, apportant des améliorations en termes de précision (synchronisation et mouvements faciaux plus naturels incluant sourcils, plissement des yeux, joues et formes de la bouche) et de fluidité.1 Ces améliorations proviennent de meilleures données d'entraînement et de la suppression de l'encodage positionnel "global" au profit d'un encodage positionnel "Ropes" au sein des blocs d'attention multi-têtes (MHA).33.2. Processus de GénérationLe processus général est le suivant :
+Entrée Audio : Le système reçoit un flux audio.
+Extraction de Caractéristiques : L'audio est traité pour en extraire des caractéristiques pertinentes. Le modèle NeuroSync est conçu pour traiter des séquences de 128 trames de caractéristiques audio.6 Bien que les détails précis de l'extraction ne soient pas disponibles dans les fichiers audio_processing.py (inaccessible 8), on peut supposer qu'il s'agit de techniques courantes comme les spectrogrammes Mel ou les coefficients MFCC, qui sont typiquement utilisés pour de telles tâches.
+Inférence du Modèle NeuroSync : Les caractéristiques audio sont fournies au modèle transformer. Celui-ci prédit une séquence de coefficients de blendshapes. Le modèle génère 61 coefficients, dont 52 sont spécifiquement utilisés pour l'animation faciale (mouvements des yeux, de la mâchoire, de la bouche, des sourcils, des joues et du nez).6 Les 9 coefficients restants, relatifs aux mouvements de la tête et aux états émotionnels, ne sont pas transmis à LiveLink.6
+Sortie des Blendshapes : Les coefficients de blendshapes (valeurs décimales généralement comprises entre 0 et 1) sont formatés, probablement en JSON, pour être transmis.
+Streaming vers Unreal Engine : Le NeuroSync Player (ou une API directe) envoie ces coefficients de blendshapes en temps réel à Unreal Engine 5 via le protocole LiveLink.1
+3.3. Nature de l'Animation : Pilotée par Modèle (Non Syllabique Directe)Les animations générées par NeuroSync ne sont pas syllabiques au sens traditionnel où chaque syllabe déclencherait une animation prédéfinie. Il s'agit plutôt d'un système piloté par un modèle d'apprentissage profond.6 Le modèle transformer apprend des corrélations complexes entre les nuances du signal audio (pas seulement les phonèmes, mais aussi le rythme, l'intonation, etc.) et les mouvements faciaux correspondants observés dans les données d'entraînement.9 Cela permet de générer des animations plus naturelles, fluides et expressives que celles basées sur une simple correspondance phonème-visème ou syllabe-animation. La capacité du modèle à gérer différents types de voix et styles de parole renforce cette idée d'une approche plus holistique que la simple décomposition syllabique.1 Le modèle vise une synchronisation labiale réaliste en prédisant directement les valeurs des blendshapes qui représentent les formes de la bouche et d'autres expressions faciales.4. Gestion de l'Animation au Repos ('Idle')Les documents consultés ne détaillent pas explicitement un module spécifique pour "l'animation au repos" (idle animation) au sein du NeuroSync Player ou de l'API NeuroSync Local.1 Cependant, le comportement typique dans de tels systèmes est que l'application de rendu (ici, Unreal Engine 5) gère l'animation au repos.Lorsque NeuroSync ne détecte aucune entrée audio ou lorsque l'audio est silencieux, le modèle produirait vraisemblablement des coefficients de blendshapes nuls ou proches de zéro pour les expressions liées à la parole. Dans ce cas :
+Le NeuroSync Player enverrait ces valeurs (proches de zéro) à Unreal Engine via LiveLink.
+Dans Unreal Engine, l'Animation Blueprint du personnage recevrait ces faibles valeurs de blendshapes.
+L'Animation Blueprint peut être configuré pour déclencher une animation de repos (par exemple, des clignements d'yeux lents, de légers mouvements de tête, des expressions faciales subtiles et neutres) lorsque les valeurs des blendshapes de parole sont en dessous d'un certain seuil ou absentes.
+Une vidéo tutoriel mentionne l'utilisation d'un "animation asset" pour l'état "idle" dans Unreal Engine, qui est ensuite rétargeté sur le personnage MetaHuman avant d'ajouter la connexion LiveLink.10 Cela confirme que l'animation de repos est une fonctionnalité gérée côté Unreal Engine, activée en l'absence de données d'animation faciale active provenant de NeuroSync. Le NeuroSync Player lui-même ne semble pas générer activement une animation de repos complexe ; il se contente de cesser de fournir des données de parole animée, permettant à Unreal Engine de prendre le relais.5. Schéma Fonctionnel et Flux de DonnéesLe système NeuroSync, dans son ensemble (modèle, API locale, et Player), implique plusieurs étapes et échanges de données pour transformer l'audio en animation faciale dans Unreal Engine.5.1. Schéma des Fonctions ImpliquéesExtrait de codegraph TD
+    A[Entrée Audio (.wav, flux temps réel)] --> B(Prétraitement Audio / Extraction de Caractéristiques);
+    B -- Séquences de caractéristiques audio (ex: 128 trames) --> C{Modèle NeuroSync (Transformer Audio-vers-Blendshapes)};
+    C -- Coefficients de Blendshapes (ex: 52 valeurs par trame) --> D;
+    D -- Données de Blendshapes formatées (JSON) --> E;
+    E -- Flux de données LiveLink (Noms de courbes et valeurs) --> F[Unreal Engine 5 (LiveLink Plugin)];
+    F -- Application des Blendshapes --> G;
+
+    subgraph NeuroSync_Local_API
+        direction LR
+        B
+        C
+    end
+
+    subgraph NeuroSync_Player_Application
+        direction LR
+        E
+    end
+
+    subgraph Unreal_Engine_Environment
+        direction LR
+        F
+        G
+    end
+Description des modules du schéma :
+A: Entrée Audio: Source sonore, qui peut être un fichier audio préenregistré ou un flux audio en temps réel. Les données d'entraînement suggèrent une préférence pour des taux d'échantillonnage élevés (par exemple, 88200 Hz, bien que 16000 Hz soit aussi possible) pour de meilleurs résultats.9
+B: Prétraitement Audio / Extraction de Caractéristiques: Ce module (potentiellement dans utils/audio_processing.py de NeuroSync_Local_API 3) convertit l'audio brut en un format que le modèle peut comprendre. Cela implique typiquement la segmentation en trames, la transformation en spectrogrammes (par exemple, Mel), et la création de séquences de ces trames.6
+
+Format de Données (Sortie): Séquences de vecteurs de caractéristiques numériques. Par exemple, des tenseurs PyTorch représentant 128 trames de caractéristiques audio.6
+
+
+C: Modèle NeuroSync: Le cœur du système, un modèle transformer qui prend les séquences de caractéristiques audio et génère des coefficients de blendshapes.6
+
+Format de Données (Sortie): Séquences de vecteurs de coefficients de blendshapes. Pour chaque trame d'entrée (ou ensemble de trames), une série de 52 valeurs (pour le visage) comprises entre 0.0 et 1.0.6
+
+
+D: API NeuroSync (Locale/Alpha): Sert de point d'accès au modèle. L'API locale (NeuroSync_Local_API) héberge le modèle et expose un endpoint pour le traitement.3 Elle reçoit les données audio (ou les caractéristiques prégénérées) et retourne les blendshapes.
+
+Format de Données (Entrée): Probablement des données audio brutes (par exemple, un fichier.wav encodé en base64 dans un JSON) ou des caractéristiques audio.
+Format de Données (Sortie): Un objet JSON contenant les coefficients de blendshapes, potentiellement structuré par trame. Par exemple, similaire au format décrit dans 4 pour les blendshapes : {"FrameIndex": N, "BlendShapes": [[val1, val2,..., val52],...]}.
+
+
+E: NeuroSync Player: Application qui communique avec l'API NeuroSync (via utils/neurosync/neurosync_api_connect.py 1), récupère les blendshapes et les transmet à Unreal Engine via LiveLink.
+
+Format de Données (Entrée): JSON de blendshapes de l'API NeuroSync.
+Format de Données (Sortie): Données structurées pour LiveLink. Cela implique un "Subject" LiveLink avec des "Curves" (courbes) nommées correspondant aux blendshapes ARKit (par exemple, EyeBlinkLeft, JawOpen, etc.) et leurs valeurs actuelles.11
+
+
+F: Unreal Engine 5 (LiveLink Plugin): Reçoit les données de LiveLink. Le plugin LiveLink permet à Unreal Engine de s'abonner à des sources de données externes.13
+
+Format de Données (Entrée): Flux de données LiveLink du NeuroSync Player. Les données des courbes sont récupérées via des fonctions comme Get Curves dans l'Animation Blueprint, qui retourne une Map (dictionnaire) de Name (nom du blendshape) à float (valeur).11
+
+
+G: Personnage 3D Animé: Le maillage du personnage dans Unreal Engine, dont les blendshapes sont pilotés par les valeurs reçues via LiveLink.
+5.2. Format des Données Échangées (Synthèse)
+Audio (Brut) vers Modèle NeuroSync (via API):
+
+L'API locale (neurosync_local_api.py 14) s'attend probablement à recevoir des données audio, soit sous forme de fichier, soit sous forme de bytes.
+En interne, audio_processing.py 3 convertirait cet audio en séquences de caractéristiques (par exemple, 128 trames).6
+
+
+Modèle NeuroSync vers API (Sortie):
+
+Une séquence de coefficients de blendshapes. Le modèle produit 61 coefficients, mais seuls les 52 premiers sont utilisés pour l'animation faciale via LiveLink.6 Ces coefficients sont des valeurs flottantes.
+L'API formaterait cela en JSON, par exemple :
+JSON{
+  "blendshape_coefficients": [0.01, 0.2,..., 0.05], // Trame 1: 52 valeurs
+    [0.02, 0.22,..., 0.06]  // Trame 2: 52 valeurs
+    //... plus de trames
+  ]
+}
+
+
+
+
+API NeuroSync vers NeuroSync Player:
+
+Le JSON ci-dessus. Le Player (neurosync_player.py 15) consomme ces données.
+
+
+NeuroSync Player vers LiveLink (Unreal Engine):
+
+Le Player agit comme une source LiveLink.13 Il envoie les données sous forme de courbes (blendshapes). Pour chaque trame, il met à jour les valeurs d'un ensemble de courbes nommées.
+Les noms de ces courbes doivent correspondre à ceux attendus par le rig du personnage dans Unreal Engine, typiquement les noms des blendshapes ARKit (par exemple, eyeBlinkLeft, jawOpen, mouthSmileLeft, etc.).12
+Le format pour LiveLink est une structure Map de Name (nom de la courbe/blendshape) à float (valeur de la courbe).11
+
+
+6. Ébauche d'une API Temps Réel pour Intégration Directe avec LiveLinkL'architecture actuelle implique le NeuroSync Player comme intermédiaire entre l'API NeuroSync (locale ou distante) et Unreal Engine.1 Une API temps réel qui enverrait directement les données à LiveLink sans passer par l'application Player distincte pourrait simplifier certains pipelines et potentiellement réduire la latence.6.1. Concept et JustificationL'idée est de créer un module (par exemple, une bibliothèque Python) qui intègre la logique de NeuroSync_Local_API (chargement du modèle, inférence) et la logique de publication LiveLink (actuellement dans NeuroSync_Player). Ce module pourrait être appelé directement depuis un script Python s'exécutant dans l'environnement Unreal Engine (via le plugin Python d'Unreal Engine 17) ou depuis une application Python tierce qui établit une source LiveLink.Cette approche directe présente plusieurs avantages potentiels :
+Réduction de la Latence : Éliminer un processus intermédiaire (le Player) et la communication inter-processus (même en localhost) peut réduire la latence globale, ce qui est crucial pour une synchronisation labiale en temps réel convaincante.
+Simplicité de Déploiement : Pour les projets qui intègrent déjà Python, cela pourrait signifier moins de composants logiciels distincts à gérer.
+Contrôle Accru : Les développeurs auraient un contrôle plus fin sur le flux de données, le cycle de vie du modèle et l'intégration dans la boucle principale de leur application.
+L'existence de bibliothèques Python pour interagir avec LiveLink dans Unreal Engine (unreal.LiveLinkBlueprintLibrary 17) rend cette approche techniquement réalisable.6.2. Structure de l'API (Conceptuelle en Python)L'API pourrait être une classe Python qui encapsule le modèle NeuroSync et gère la connexion LiveLink.Python# Fichier conceptuel: direct_livelink_neurosync_api.py
+import unreal # Nécessite l'environnement Python d'Unreal Engine ou une bibliothèque de publication LiveLink autonome
+import torch
+# Supposons l'existence de 'model.py' et 'audio_processing.py' de NeuroSync_Local_API
+from model import NeuroSyncModel # Classe du modèle NeuroSync
+from audio_processing import preprocess_audio_chunk # Fonction de prétraitement
+
+class NeuroSyncDirectLiveLink:
+    def __init__(self, model_path, livelink_subject_name="NeuroSyncDirect"):
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model = NeuroSyncModel() # Charger l'architecture du modèle
+        self.model.load_state_dict(torch.load(model_path, map_location=self.device))
+        self.model.to(self.device)
+        self.model.eval()
+        
+        self.livelink_subject_name = unreal.LiveLinkSubjectName(livelink_subject_name)
+        self.livelink_client = unreal.LiveLinkBlueprintLibrary.get_live_link_client()
+        
+        # Définir la structure statique des blendshapes (noms des courbes ARKit)
+        # Basé sur [6] (52 blendshapes) et [16] (noms ARKit)
+        self.arkit_blendshape_names =
+        
+        # Enregistrer la source LiveLink (simplifié, la gestion complète de la source est plus complexe)
+        # Idéalement, on créerait une source LiveLink custom en C++ ou via des bindings Python plus complets si disponibles.
+        # Pour cet exemple, nous supposons une manière de mettre à jour les données d'un sujet existant.
+
+    def process_audio_and_publish(self, audio_chunk_path_or_bytes):
+        # 1. Prétraiter l'audio pour obtenir les caractéristiques
+        # audio_features est un tenseur [1, sequence_length, feature_dim]
+        audio_features = preprocess_audio_chunk(audio_chunk_path_or_bytes) 
+        audio_features = audio_features.to(self.device)
+
+        # 2. Inférence du modèle
+        with torch.no_grad():
+            blendshape_coeffs = self.model(audio_features) # Sortie [1, num_frames, 52]
+        
+        blendshape_coeffs = blendshape_coeffs.squeeze(0).cpu().numpy() # Devient [num_frames, 52]
+
+        # 3. Publier chaque trame de blendshapes via LiveLink
+        for frame_coeffs in blendshape_coeffs:
+            # Créer la structure de données pour LiveLink
+            frame_data = unreal.LiveLinkAnimationFrameData()
+            # Les blendshapes sont des courbes dans LiveLink
+            curves = unreal.Map(unreal.Name, float)
+            for i, name in enumerate(self.arkit_blendshape_names):
+                if i < len(frame_coeffs): # S'assurer de ne pas dépasser
+                    curves.add(unreal.Name(name), float(frame_coeffs[i]))
+            
+            # Mettre à jour le frame LiveLink (ceci est une simplification)
+            # La mise à jour réelle d'un sujet LiveLink se fait via l'API LiveLink Client.
+            # Il faudrait créer un FLiveLinkFrameData, y assigner les courbes, et le pousser.
+            # unreal.LiveLinkBlueprintLibrary.evaluate_live_link_frame... (pour la lecture)
+            # Pour l'écriture, il faut une source LiveLink.
+            # Ici, on simule la mise à jour pour l'idée.
+            
+            # Exemple conceptuel de push (nécessite une implémentation de source LiveLink):
+            # self.livelink_client.push_subject_frame_data(self.livelink_subject_name, frame_data_with_curves)
+            
+            # Pour l'instant, on affiche juste pour montrer le format:
+            # print(f"Publishing to LiveLink Subject '{self.livelink_subject_name}': {curves}")
+            pass # La publication réelle nécessite une infrastructure LiveLink Source
+
+    def publish_idle_frame(self):
+        # Envoyer une trame avec tous les coefficients à zéro
+        curves = unreal.Map(unreal.Name, float)
+        for name in self.arkit_blendshape_names:
+            curves.add(unreal.Name(name), 0.0)
+        
+        # Simuler la publication
+        # print(f"Publishing IDLE to LiveLink Subject '{self.livelink_subject_name}': {curves}")
+        # self.livelink_client.push_subject_frame_data(self.livelink_subject_name, idle_frame_data_with_curves)
+        pass
+
+6.3. Format des Données d'Entrée et de Sortie
+Entrée de l'API (fonction process_audio_and_publish):
+
+audio_chunk_path_or_bytes: Chemin vers un fichier audio (ex:.wav) ou un objet bytes contenant les données audio brutes d'un segment. Le format audio doit être celui attendu par preprocess_audio_chunk (par exemple, mono, 16kHz ou 88.2kHz PCM 9).
+
+
+Sortie (vers LiveLink):
+
+Les données sont envoyées via le protocole LiveLink. Pour chaque trame d'animation, un ensemble de paires (nom de courbe, valeur) est transmis.
+Les noms de courbes sont les 52 noms de blendshapes ARKit standardisés (par exemple, eyeBlinkLeft, jawOpen, mouthSmileLeft, etc.).6
+Les valeurs sont des flottants, typiquement entre 0.0 et 1.0.
+Exemple de structure de données pour une trame envoyée à LiveLink (conceptuel, via unreal.Map(Name, float) 11):
+{
+    "SubjectName": "NeuroSyncDirect",
+    "Curves": {
+        "eyeBlinkLeft": 0.85,
+        "jawOpen": 0.42,
+        //... 50 autres blendshapes ARKit de [16]
+        "tongueOut": 0.1
+    }
+}
+
+Cette structure Curves est ce qui serait fourni à la Map(Name, float) récupérée par Get Curves dans un Animation Blueprint d'Unreal Engine.11
+
+
+6.4. Gestion du Silence / Absence d'AudioSi aucune entrée audio n'est détectée ou si l'audio est silencieux pendant une période, la fonction publish_idle_frame (ou une logique similaire dans process_audio_and_publish si le modèle retourne des zéros) enverrait une trame où toutes les valeurs de blendshapes sont à 0.0 (ou très proches de zéro). Cela permet à Unreal Engine de détecter l'absence d'animation de parole active et de passer à son propre système d'animation de repos (idle) défini dans l'Animation Blueprint du personnage.10Le choix d'une API directe en Python capitalise sur la prédominance de ce langage dans le domaine de l'IA/ML (pour l'exécution du modèle PyTorch 9) et son intégration croissante au sein d'Unreal Engine.17 Néanmoins, pour des applications exigeant une latence ultra-faible, une implémentation en C++ de l'inférence du modèle (par exemple, avec LibTorch, le frontend C++ de PyTorch) et de la publication LiveLink pourrait être envisagée à terme. Une telle démarche augmenterait cependant significativement la complexité du développement par rapport à une solution entièrement en Python, qui reste plus directe pour intégrer les fichiers de modèle NeuroSync existants.6.5. Spécification de l'API Directe LiveLink (Conceptuelle)Le tableau suivant résume la proposition de conception pour une telle API :AspectDescriptionType d'APIBibliothèque/Module Python.Fonctionnalité PrincipaleCharger le modèle NeuroSync, traiter les chunks audio, générer des coefficients de blendshapes, et publier directement vers LiveLink.Entrée PrincipaleChunks de données audio (par exemple, fichiers.wav ou flux de bytes).Sortie (vers LiveLink)Flux de données LiveLink contenant les noms des 52 blendshapes ARKit et leurs valeurs (0.0-1.0) pour chaque trame.Dépendances ClésFichiers du modèle NeuroSync (.pth, model.py), PyTorch, bibliothèques de traitement audio (ex: Librosa), API Python d'Unreal Engine.Méthode d'Intégration UEVia un script Python dans Unreal Engine utilisant le plugin Python et les API LiveLink, ou comme une source LiveLink externe en Python.Gestion du SilencePublication de trames avec des valeurs de blendshapes à zéro pour permettre la transition vers l'animation de repos d'Unreal Engine.7. Conclusion et PerspectivesL'analyse des dépôts GitHub NeuroSync révèle un système sophistiqué d'animation faciale en temps réel. NeuroSync utilise un modèle d'IA de type transformer pour convertir directement les caractéristiques audio en 52 coefficients de blendshapes compatibles ARKit, permettant une animation faciale nuancée et naturelle dans Unreal Engine 5.1 Cette approche est pilotée par le modèle, transcendant les limitations des systèmes syllabiques traditionnels. L'animation au repos est gérée par Unreal Engine lorsque NeuroSync ne transmet pas de données de parole actives.1La proposition d'une API directe pour LiveLink vise à offrir une alternative au NeuroSync Player, avec des avantages potentiels en termes de latence réduite, de déploiement simplifié pour certains cas d'usage, et d'un contrôle plus fin sur le pipeline d'animation. Cependant, cette approche transfère la responsabilité de l'intégration du modèle Python et de la gestion des dépendances au développeur. Le NeuroSync Player existant gère probablement des complexités telles que l'interface utilisateur, divers types de connexion et une gestion des erreurs plus robuste, qui devraient être réimplémentées si nécessaire dans une solution directe.L'ensemble du projet NeuroSync, y compris le NeuroSync Trainer Lite 9, témoigne d'une volonté de démocratiser l'accès à des technologies avancées de conversion audio-visage. Il permet aux utilisateurs non seulement d'employer des modèles pré-entraînés, mais aussi d'entraîner les leurs. La demande d'une API directe s'inscrit naturellement dans cette tendance, reflétant un désir des utilisateurs pour un contrôle accru et une intégration plus profonde de ces technologies dans leurs propres flux de production personnalisés.Perspectives d'Évolution :
+Exploitation des Coefficients Supplémentaires : Utiliser les 9 coefficients de blendshapes additionnels générés par le modèle NeuroSync (concernant les mouvements de la tête et les états émotionnels 6) pour enrichir davantage l'expressivité de l'animation.
+Optimisation des Performances : Pour les scénarios les plus exigeants en termes de latence, l'exploration d'une inférence en C++ pour le modèle NeuroSync (par exemple, via LibTorch) pourrait offrir des gains de performance substantiels.
+Techniques de Mélange Avancées : Investiguer des techniques de blending (mélange) plus sophistiquées pour des transitions encore plus fluides entre les états de parole et de repos, surtout si l'API directe gère sa propre détection de silence de manière plus fine.
